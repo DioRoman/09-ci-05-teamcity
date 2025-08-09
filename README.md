@@ -1,0 +1,1 @@
+cd /mnt/c/Users/rlyst/Netology/09-ci-05-teamcity/src
