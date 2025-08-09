@@ -23,15 +23,15 @@ output "teamcity-server_ssh" {
   ]
 }
 
-output "vm-yc_private_ips" {
+output "nexus-vm_private_ips" {
   description = "Private IP addresses of Web VMs"
-  value       = module.vm-yc.internal_ips
+  value       = module.nexus-vm.internal_ips
 }
 
-output "vm-yc_ssh" {
+output "nexus-vm_ssh" {
   description = "SSH commands to connect to Web VMs"
   value = [
-    for ip in module.vm-yc.external_ips : "ssh -l ubuntu ${ip}"
+    for ip in module.nexus-vm.external_ips : "ssh -l ubuntu ${ip}"
   ]
 }
 
