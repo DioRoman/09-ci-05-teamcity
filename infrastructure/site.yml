@@ -1,158 +1,128 @@
 ---
-- name: Get Nexus installed
-  hosts: nexus
-  pre_tasks:
-    - name: Create Nexus group
-      become: true
-      group:
-        name: "{{ nexus_user_group }}"
-        state: present
-    - name: Create Nexus user
-      become: true
-      user:
-        name: "{{ nexus_user_name }}"
-    - name: Install JDK
-      become: true
-      package:
-        name: [openjdk-8-jdk]
-        state: present
+- name: Install latest Nexus Repository Manager
+  hosts: all
+  become: true
   tasks:
-    - name: Create Nexus directories
-      become: true
-      file:
-        group: "{{ nexus_user_group }}"
-        owner: "{{ nexus_user_name }}"
-        path: "{{ item }}"
-        state: directory
-      with_items:
-        - "{{ nexus_directory_log }}"
-        - "{{ nexus_directory_data }}"
-        - "{{ nexus_directory_data }}/etc"
-        - "{{ nexus_directory_package }}"
-        - "{{ nexus_directory_tmp }}"
+  - name: Ensure nexus group exists
+    group:
+      name: "{{ nexus_group }}"
+      state: present
 
-    - name: Download Nexus
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      get_url:
-        dest: "{{ nexus_directory_package }}/nexus-{{ nexus_version }}.tar.gz"
-        url: "{{ nexus_download_url }}/nexus-{{ nexus_version }}-unix.tar.gz"
+  - name: Ensure nexus user exists
+    user:
+      name: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      shell: /bin/bash
+      create_home: no
+      system: yes
+      state: present
 
-    - name: Unpack Nexus
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      unarchive:
-        copy: no
-        creates: "{{ nexus_directory_package }}/nexus-{{ nexus_version }}"
-        dest: "{{ nexus_directory_package }}"
-        src: "{{ nexus_directory_package }}/nexus-{{ nexus_version }}.tar.gz"
+  - name: Download Nexus archive
+    get_url:
+      url: "https://download.sonatype.com/nexus/3/nexus-{{ nexus_version }}-linux-x86_64.tar.gz"
+      dest: "/tmp/nexus-{{ nexus_version }}.gz"
+      mode: '0644'
 
-    - name: Link to Nexus Directory
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      file:
-        dest: "{{ nexus_directory_home }}"
-        src: "{{ nexus_directory_package }}/nexus-{{ nexus_version }}"
-        state: link
+  - name: Create nexus install directory
+    file:
+      path: "{{ nexus_install_dir }}"
+      state: directory
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
 
-    - name: Add NEXUS_HOME for Nexus user
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      lineinfile:
-        create: yes
-        dest: "/home/{{ nexus_user_name }}/.bashrc"
-        insertafter: EOF
-        line: "export NEXUS_HOME={{ nexus_directory_home }}"
+  - name: Extract Nexus archive
+    unarchive:
+      src: "/tmp/nexus-{{ nexus_version }}.gz"
+      dest: "{{ nexus_install_dir }}"
+      remote_src: yes
+      extra_opts: [--strip-components=1]
+    notify:
+      - Set nexus ownership
 
-    - name: Add run_as_user to Nexus.rc
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      lineinfile:
-        create: yes
-        dest: "{{ nexus_directory_home }}/bin/nexus.rc"
-        insertafter: EOF
-        line: "run_as_user=\"{{ nexus_user_name }}\""
-        regexp: "^run_as_user"
+  - name: Create nexus data directory
+    file:
+      path: "{{ nexus_data_dir }}"
+      state: directory
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
 
-    - name: Raise nofile limit for Nexus user
-      become: true
-      pam_limits:
-        domain: "{{ nexus_user_name }}"
-        limit_type: "-"
-        limit_item: nofile
-        value: "{{ nexus_ulimit }}"
+  - name: Ensure nexus.rc file exists
+    file:
+      path: "{{ nexus_install_dir }}/bin/nexus.rc"
+      state: touch
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+      mode: '0644'
 
-    - name: Create Nexus service for SystemD
-      become: true
-      template:
-        dest: /lib/systemd/system/nexus.service
-        mode: 0644
-        src: nexus.systemd.j2
+  - name: Configure nexus to run as nexus user
+    lineinfile:
+      path: "{{ nexus_install_dir }}/bin/nexus.rc"
+      regexp: '^run_as_user='
+      line: "run_as_user={{ nexus_user }}"
 
-    - name: Ensure Nexus service is enabled for SystemD
-      become: true
-      systemd:
-        daemon_reload: yes
-        enabled: yes
-        name: nexus
-      when:
-        - nexus_service_enabled
+  - name: Create systemd service for nexus
+    copy:
+      dest: /etc/systemd/system/{{ nexus_service_name }}.service
+      content: |
+        [Unit]
+        Description=nexus service
+        After=network.target
 
-    - name: Create Nexus vmoptions
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      template:
-        dest: "{{ nexus_directory_home }}/bin/nexus.vmoptions"
-        src: nexus.vmoptions.j2
-      register: nexus_config_changed
+        [Service]
+        Type=forking
+        LimitNOFILE=65536
+        ExecStart={{ nexus_install_dir }}/bin/nexus start
+        ExecStop={{ nexus_install_dir }}/bin/nexus stop
+        User={{ nexus_user }}
+        Restart=on-abort
 
-    - name: Create Nexus properties
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      template:
-        dest: "{{ nexus_directory_data }}/etc/nexus.properties"
-        src: nexus.properties.j2
-      register: nexus_config_changed
+        [Install]
+        WantedBy=multi-user.target
+    notify:
+      - Reload systemd
 
-    - name: Lower Nexus disk space threshold
-      become: true
-      become_user: "{{ nexus_user_name }}"
-      lineinfile:
-        backrefs: yes
-        dest: "{{ nexus_directory_home }}/etc/karaf/system.properties"
-        insertafter: EOF
-        line: "storage.diskCache.diskFreeSpaceLimit={{ nexus_configuration_disk_free_space_limit }}"
-        regexp: ^storage\.diskCache\.diskFreeSpaceLimit
-      when: nexus_configuration_disk_free_space_limit is not none
-      register: nexus_config_changed
+  - name: Enable and start nexus service
+    systemd:
+      name: "{{ nexus_service_name }}"
+      enabled: yes
+      state: started
 
-    - name: Start Nexus service if enabled
-      become: true
-      service:
-        enabled: yes
-        name: nexus
-        state: started
-      when:
-        - nexus_service_start_on_boot
-        - not nexus_config_changed.changed
-      tags:
-        - skip_ansible_lint
+  # --- Проверка запуска ---
+  - name: Wait for Nexus to start and listen on port {{ nexus_port }}
+    wait_for:
+      port: "{{ nexus_port }}"
+      state: started
+      delay: 10
+      timeout: 180
 
-    - name: Ensure Nexus service is restarted
-      become: true
-      service:
-        name: nexus
-        state: restarted
-      when:
-        - nexus_service_start_on_boot
-        - nexus_config_changed.changed
-      tags:
-        - skip_ansible_lint
+  - name: Check Nexus service status
+    command: systemctl is-active {{ nexus_service_name }}
+    register: nexus_service_status
+    changed_when: false
 
-    - name: Wait for Nexus port if started
-      wait_for:
-        port: "{{ nexus_port }}"
-        state: started
-        timeout: "{{ nexus_port_check_timeout }}"
-      when:
-        - nexus_service_start_on_boot
+  - name: Fail if Nexus service is not active
+    fail:
+      msg: "Nexus service is not active!"
+    when: nexus_service_status.stdout != "active"
+
+  - name: Get Nexus version
+    command: "{{ nexus_install_dir }}/bin/nexus --version"
+    register: nexus_version_output
+    changed_when: false
+    failed_when: false
+
+  - name: Show installed Nexus version
+    debug:
+      msg: "Installed Nexus version: {{ nexus_version_output.stdout if nexus_version_output.stdout else 'Unknown' }}"
+
+  handlers:
+  - name: Set nexus ownership
+    file:
+      path: "{{ nexus_install_dir }}"
+      recurse: yes
+      owner: "{{ nexus_user }}"
+      group: "{{ nexus_group }}"
+
+  - name: Reload systemd
+    systemd:
+      daemon_reload: yes
