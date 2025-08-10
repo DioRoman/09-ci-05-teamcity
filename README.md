@@ -49,8 +49,9 @@
 
 **P.S.** Подробную информацию по структуре модулей, переменным и полезным сценариям развёртывания смотрите в README и примерах внутри репозитория.
 
-#### Полезные команды 
-
+<details>
+  <summary>Полезные команды</summary>
+  
 ```
 cd /mnt/c/Users/rlyst/Netology/09-ci-05-teamcity/terraform
 
@@ -58,3 +59,4 @@ docker run -d -e SERVER_URL="http://89.169.159.107:8111" jetbrains/teamcity-agen
 
 ansible-playbook -i /mnt/c/Users/rlyst/Netology/09-ci-05-teamcity/infrastructure/inventory/cicd/hosts.yml /mnt/c/Users/rlyst/Netology/09-ci-05-teamcity/infrastructure/site.yml
 ```
+</details>
