@@ -1,4 +1,4 @@
-cd /mnt/c/Users/rlyst/Netology/09-ci-05-teamcity/src
+cd /mnt/c/Users/rlyst/Netology/09-ci-05-teamcity/terraform
 
 docker run -d -e SERVER_URL="http://89.169.159.107:8111" jetbrains/teamcity-agent
 
