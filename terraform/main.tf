@@ -2,7 +2,7 @@
 
 module "yandex-vpc" {
   source       = "git::https://github.com/DioRoman/ter-final.git//src/modules/yandex-vpc?ref=main"
-  env_name     = var.teamcity-server[0].env_name
+  env_name     = var.nexus-vm[0].env_name
   subnets = [
     { zone = var.vpc_default_zone[0], cidr = var.vpc_default_cidr[1] }
   ]
